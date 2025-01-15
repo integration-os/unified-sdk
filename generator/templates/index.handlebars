@@ -1,0 +1,193 @@
+import axios, { AxiosInstance, Method } from 'axios';
+import { UnifiedOptions, Response, ListFilter, ListResponse, Count, DeleteOptions, HttpStatusCode, ResponseError } from './types/';
+import { convertFilterToQueryParams } from './utils';
+
+export * from './types/generic';
+export * from './types/models';
+export * from './paginate';
+
+import { 
+  {{#each resources}}
+    {{this.pascalCase}}{{#unless @last}}, {{/unless}}
+  {{/each}} 
+} from './types/';
+
+export interface UnifiedApi<Type> {
+    create(object: Type, options?: UnifiedOptions | undefined | null): Promise<Response<Type>>;
+    list(filter?: ListFilter | undefined | null, options?: UnifiedOptions | undefined | null): Promise<ListResponse<Type>>;
+    get(id: string, options?: UnifiedOptions | undefined | null): Promise<Response<Type>>;
+    update(id: string, object: Type, options?: UnifiedOptions | undefined | null): Promise<Response<Type>>;
+    count(options?: UnifiedOptions | undefined | null): Promise<Response<Count>>;
+    delete(id: string, deleteOptions?: DeleteOptions | undefined | null, options?: UnifiedOptions | undefined | null): Promise<Response<Type>>;
+}
+
+interface PassthroughAPI<Type> {
+    call(options: {
+        method: Method;
+        path: string;
+        data?: any;
+        headers?: Record<string, string>;
+        queryParams?: Record<string, string>;
+    }): Promise<Response<Type>>;
+}
+
+export class Resource {
+    protected axiosInstance: AxiosInstance;
+    protected connectionKey: string;
+    protected resourceName: string;
+
+    constructor(axiosInstance: AxiosInstance, connectionKey: string, resourceName: string) {
+        this.axiosInstance = axiosInstance;
+        this.connectionKey = connectionKey;
+        this.resourceName = resourceName;
+    }
+
+    protected getRequestHeaders(options?: UnifiedOptions): Record<string, string> {
+        const headers: Record<string, string> = {};
+        const excludedKeys = ['common', 'delete', 'get', 'head', 'post', 'put', 'patch'];
+
+        for (const [key, value] of Object.entries(this.axiosInstance.defaults.headers)) {
+            if (!excludedKeys.includes(key) && typeof value === 'string') {
+                headers[key] = value;
+            }
+        }
+
+        headers['x-pica-connection-key'] = this.connectionKey;
+        Object.assign(headers, options?.passthroughHeaders);
+
+        return headers;
+    }
+
+    protected async makeRequestSingle<R>(
+        method: string,
+        url: string,
+        data?: any,
+        options?: UnifiedOptions,
+        queryParams?: Record<string, string>,
+        statusCode?: number
+    ): Promise<Response<R>> {
+        try {
+            const response = await this.axiosInstance.request({
+                method: method as Method,
+                url,
+                data,
+                headers: this.getRequestHeaders(options),
+                params: { ...queryParams, ...options?.passthroughQuery }
+            });
+
+            const output = {
+                ...(url.startsWith('/passthrough') ? { passthrough: response?.data } : response?.data),
+                headers: response.headers as Record<string, string>,
+                statusCode: statusCode || response.status
+            };
+
+            return output;
+        } catch (error: any) {
+            throw error.response?.data as ResponseError;
+        }
+    }
+
+    protected async makeRequestList<R>(
+        method: string,
+        url: string,
+        data?: any,
+        options?: UnifiedOptions,
+        queryParams?: Record<string, string>,
+        statusCode?: number
+    ): Promise<ListResponse<R>> {
+        try {
+            const response = await this.axiosInstance.request({
+                method: method as Method,
+                url,
+                data,
+                headers: this.getRequestHeaders(options),
+                params: { ...queryParams, ...options?.passthroughQuery }
+            });
+
+            const output = {
+                ...response?.data,
+                headers: response.headers as Record<string, string>,
+                statusCode: statusCode || response.status
+            };
+
+            return output;
+        } catch (error: any) {
+            throw error.response?.data as ResponseError;
+        }
+    }
+}
+
+export class UnifiedResourceImpl<T> extends Resource implements UnifiedApi<T> {
+    async create(object: T, options?: UnifiedOptions): Promise<Response<T>> {
+        return this.makeRequestSingle<T>('POST', `/unified/${this.resourceName}`, object, options, undefined, HttpStatusCode.Created);
+    }
+
+    async upsert(object: T, options?: UnifiedOptions): Promise<Response<T>> {
+        return this.makeRequestSingle<T>('PUT', `/unified/${this.resourceName}`, object, options, undefined, HttpStatusCode.OK);
+    }
+
+    async list(filter?: ListFilter, options?: UnifiedOptions): Promise<ListResponse<T>> {
+        const queryParams = convertFilterToQueryParams(filter);
+        return this.makeRequestList<T>('GET', `/unified/${this.resourceName}`, undefined, options, queryParams, HttpStatusCode.OK);
+    }
+
+    async get(id: string, options?: UnifiedOptions): Promise<Response<T>> {
+        return this.makeRequestSingle<T>('GET', `/unified/${this.resourceName}/${id}`, undefined, options, undefined, HttpStatusCode.OK);
+    }
+
+    async update(id: string, object: T, options?: UnifiedOptions): Promise<Response<T>> {
+        return this.makeRequestSingle<T>('PATCH', `/unified/${this.resourceName}/${id}`, object, options, undefined, HttpStatusCode.NoContent);
+    }
+
+    async count(options?: UnifiedOptions): Promise<Response<Count>> {
+        return this.makeRequestSingle<Count>('GET', `/unified/${this.resourceName}/count`, undefined, options, undefined, HttpStatusCode.OK);
+    }
+
+    async delete(id: string, deleteOptions?: DeleteOptions, options?: UnifiedOptions): Promise<Response<T>> {
+        return this.makeRequestSingle<T>('DELETE', `/unified/${this.resourceName}/${id}`, undefined, options, {
+            ...deleteOptions,
+        }, HttpStatusCode.NoContent);
+    }
+}
+
+class PassthroughResourceImpl<T> extends Resource implements PassthroughAPI<T> {
+    async call<T>(options: {
+        method: Method;
+        path: string;
+        data?: any;
+        headers?: Record<string, string>;
+        queryParams?: Record<string, string>;
+    }): Promise<Response<T>> {
+        const { method, path, data, headers, queryParams } = options;
+
+        return this.makeRequestSingle<T>(method, `/passthrough/${path}`, data, headers, queryParams);
+    }
+}
+
+export interface PicaConfig {
+    serverUrl: string
+}
+
+export class Pica {
+    public axiosInstance: AxiosInstance;
+
+    constructor(private apiKey: string, options?: PicaConfig | undefined | null) {
+        this.axiosInstance = axios.create({
+            baseURL: options?.serverUrl || 'https://api.picaos.com/v1',
+            headers: {
+                'x-pica-secret': this.apiKey,
+                'Content-Type': 'application/json',
+            },
+        });
+    }
+
+    passthrough<T>(connectionKey: string): PassthroughAPI<T> {
+        return new PassthroughResourceImpl(this.axiosInstance, connectionKey, 'passthrough');
+    }
+
+    {{#each resources}}
+    {{this.camelCase}}(connectionKey: string) {
+        return new UnifiedResourceImpl<{{this.pascalCase}}>(this.axiosInstance, connectionKey, '{{this.lowerCase}}');
+    }
+    {{/each}}
+}
