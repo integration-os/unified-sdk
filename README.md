@@ -1,6 +1,6 @@
 # @picahq/unified
 
-The Pica Unified SDK library for Node.js provides convenient access to the Pica UnifiedAPI from applications written in server-side JavaScript.
+The Pica Unified SDK library for Node.js provides convenient access to the Pica Unified API from applications written in server-side JavaScript.
 
 ## Install
 
