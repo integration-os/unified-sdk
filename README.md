@@ -38,4 +38,4 @@ Configure the `.env` file based on the `.env.sample` provided with an Pica Secre
 
 ## Full Documentation
 
-Please refer to the official Pica [Documentation](https://docs.picaos.com) and [API Reference](https://docs.picaos.com/reference) for more information and Node.js usage examples.
+Please refer to the official Pica [Documentation](https://docs.picaos.com) and [API Reference](https://docs.picaos.com/api-reference/introduction) for more information and Node.js usage examples.
