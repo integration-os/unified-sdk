@@ -1,6 +1,6 @@
 {
   "name": "@picahq/unified",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Node SDK for the Pica Unified API",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
